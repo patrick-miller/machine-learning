@@ -3,7 +3,7 @@
 
 # # Create a logistic regression model to predict TP53 mutation from gene expression data in TCGA
 
-# In[178]:
+# In[1]:
 
 import os
 import urllib
@@ -25,7 +25,7 @@ from sklearn.decomposition import PCA
 from statsmodels.robust.scale import mad
 
 
-# In[179]:
+# In[2]:
 
 get_ipython().magic('matplotlib inline')
 plt.style.use('seaborn-notebook')
@@ -33,7 +33,7 @@ plt.style.use('seaborn-notebook')
 
 # ## Specify model configuration
 
-# In[180]:
+# In[3]:
 
 # We're going to be building a 'TP53' classifier 
 GENE = '7157' # TP53
@@ -45,33 +45,33 @@ GENE = '7157' # TP53
 
 # ## Load Data
 
-# In[181]:
+# In[4]:
 
 get_ipython().run_cell_magic('time', '', "path = os.path.join('download', 'expression-matrix.tsv.bz2')\nexpression = pd.read_table(path, index_col=0)")
 
 
-# In[182]:
+# In[5]:
 
 get_ipython().run_cell_magic('time', '', "path = os.path.join('download', 'mutation-matrix.tsv.bz2')\nY = pd.read_table(path, index_col=0)")
 
 
-# In[183]:
+# In[6]:
 
 get_ipython().run_cell_magic('time', '', "path = os.path.join('download', 'covariates.tsv')\ncovariates = pd.read_table(path, index_col=0)\n\n# Select acronym_x and n_mutations_log1p covariates only\nselected_cols = [col for col in covariates.columns if 'acronym_' in col]\nselected_cols.append('n_mutations_log1p')\ncovariates = covariates[selected_cols]")
 
 
-# In[184]:
+# In[7]:
 
 y = Y[GENE]
 
 
-# In[185]:
+# In[8]:
 
 # The Series now holds TP53 Mutation Status for each Sample
 y.head(6)
 
 
-# In[186]:
+# In[9]:
 
 # Here are the percentage of tumors with NF1
 y.value_counts(True)
@@ -80,10 +80,10 @@ y.value_counts(True)
 # ## Pre-process data set
 # TODO: currently running PCA on both train and test partitions
 
-# In[187]:
+# In[10]:
 
 # Pre-process expression data for use later
-n_components = 65
+n_components = 100
 scaled_expression = StandardScaler().fit_transform(expression)
 pca = PCA(n_components).fit(scaled_expression)
 explained_variance = pca.explained_variance_
@@ -92,12 +92,12 @@ expression_pca = pd.DataFrame(expression_pca)
 expression_pca = expression_pca.set_index(expression.index.values)
 
 
-# In[188]:
+# In[11]:
 
 print('fraction of variance explained: ' + str(pca.explained_variance_ratio_.sum()))
 
 
-# In[189]:
+# In[12]:
 
 # Create full feature matrix (expression + covariates)
 X = pd.concat([covariates,expression_pca],axis=1)
@@ -107,7 +107,7 @@ print('Full feature matrix shape: {0[0]}, {0[1]}'.format(X.shape))
 
 # ## Set aside 10% of the data for testing
 
-# In[190]:
+# In[13]:
 
 # Typically, this can only be done where the number of mutations is large enough
 train_index, test_index = next(ShuffleSplit(n_splits=2, test_size=0.1, random_state=0).split(y))
@@ -136,21 +136,9 @@ y_test = y[test_index]
     len(X_partitions['full']['test']))
 
 
-# ## Median absolute deviation feature selection
-
-# In[191]:
-
-def fs_mad(x, y):
-    """    
-    Get the median absolute deviation (MAD) for each column of x
-    """
-    scores = mad(x) 
-    return scores, np.array([np.NaN]*len(scores))
-
-
 # ## Define pipeline and Cross validation model fitting
 
-# In[192]:
+# In[14]:
 
 # Parameter Sweep for Hyperparameters
 param_grid = {
@@ -173,12 +161,12 @@ cv_pipelines = {mod: GridSearchCV(estimator=pipeline,
                              scoring='roc_auc') for mod in models}
 
 
-# In[193]:
+# In[15]:
 
 get_ipython().run_cell_magic('time', '', "for model, pipeline in cv_pipelines.items():\n    print('Fitting CV for model: {0}'.format(model))\n    pipeline.fit(X=X_partitions.get(model).get('train'), y=y_train)\n# cv_pipeline_full.fit(X=X_train_full, y=y_train)")
 
 
-# In[194]:
+# In[16]:
 
 # Best Params
 for model, pipeline in cv_pipelines.items():
@@ -190,7 +178,7 @@ for model, pipeline in cv_pipelines.items():
 
 # ## Visualize hyperparameters performance
 
-# In[195]:
+# In[17]:
 
 cv_results_df_dict = {model: 
     pd.concat([
@@ -203,7 +191,7 @@ model = 'full'
 cv_results_df_dict[model].head(2)
 
 
-# In[196]:
+# In[18]:
 
 # Cross-validated performance heatmap
 model = 'full'
@@ -219,7 +207,7 @@ ax.set_ylabel('Elastic net mixing parameter (l1_ratio)');
 
 # ## Use Optimal Hyperparameters to Output ROC Curve
 
-# In[197]:
+# In[19]:
 
 y_pred_dict = {
     model: {
@@ -243,7 +231,10 @@ metrics_dict = {
 }
 
 
-# In[198]:
+# In[20]:
+
+# TODO: replace with Vega specification
+# use ipyvega?
 
 # Plot ROC
 plt.figure()
@@ -264,7 +255,7 @@ plt.legend(loc='lower right');
 
 # ## What are the classifier coefficients?
 
-# In[199]:
+# In[21]:
 
 final_pipelines = {
     model: pipeline.best_estimator_
@@ -276,7 +267,7 @@ final_classifiers = {
 }
 
 
-# In[200]:
+# In[22]:
 
 def get_coefficients(classifier, X_mat):
     coef_df = pd.DataFrame.from_items([
@@ -295,7 +286,7 @@ coef_df_dict = {
 }
 
 
-# In[201]:
+# In[23]:
 
 model = 'full'
 
@@ -304,12 +295,12 @@ print('{:.1%} zero coefficients; {:,} negative and {:,} positive coefficients'.f
     (coef_df_dict[model].weight < 0).sum(),
     (coef_df_dict[model].weight > 0).sum()
 ))
-coef_df.head(10)
+coef_df_dict[model].head(10)
 
 
 # ## Investigate the predictions
 
-# In[202]:
+# In[24]:
 
 model = 'full'
 
@@ -328,13 +319,13 @@ predict_df = pd.DataFrame.from_items([
 predict_df['probability_str'] = predict_df['probability'].apply('{:.1%}'.format)
 
 
-# In[203]:
+# In[25]:
 
 # Top predictions amongst negatives (potential hidden responders)
 predict_df.sort_values('decision_function', ascending=False).query("status == 0").head(10)
 
 
-# In[204]:
+# In[26]:
 
 # Ignore numpy warning caused by seaborn
 warnings.filterwarnings('ignore', 'using a non-integer number instead of an integer')
@@ -343,7 +334,7 @@ ax = sns.distplot(predict_df.query("status == 0").decision_function, hist=False,
 ax = sns.distplot(predict_df.query("status == 1").decision_function, hist=False, label='Positives')
 
 
-# In[205]:
+# In[27]:
 
 ax = sns.distplot(predict_df.query("status == 0").probability, hist=False, label='Negatives')
 ax = sns.distplot(predict_df.query("status == 1").probability, hist=False, label='Positives')
