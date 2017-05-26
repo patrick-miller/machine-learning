@@ -14,6 +14,8 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
+import vega
+import json
 from sklearn import preprocessing
 from sklearn.linear_model import SGDClassifier
 from sklearn.model_selection import train_test_split, GridSearchCV, ShuffleSplit
@@ -22,7 +24,6 @@ from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 from sklearn.feature_selection import SelectKBest
 from sklearn.decomposition import PCA
-from statsmodels.robust.scale import mad
 
 
 # In[2]:
@@ -233,24 +234,37 @@ metrics_dict = {
 
 # In[20]:
 
-# TODO: replace with Vega specification
-# use ipyvega?
+# TODO: do not save intermediate files?
+# Assemble the data for ROC curves
+model_order = ['full', 'expressions', 'covariates']
 
-# Plot ROC
-plt.figure()
-for model, metrics_partition in metrics_dict.items():
+auc_output = pd.DataFrame()
+roc_output = pd.DataFrame()
+
+for model in model_order:
+    metrics_partition = metrics_dict[model]
     for partition, metrics in metrics_partition.items():
-        model_name = '{0} {1}'.format(model, partition)
+        auc_output = auc_output.append(pd.DataFrame({
+            'partition': [partition],
+            'feature_set': [model],
+            'auc': metrics['auroc']
+        }))
         roc_df = metrics['roc_df']
-        plt.plot(roc_df.fpr, roc_df.tpr,
-            label='{} (AUROC = {:.1%})'.format(model_name, metrics['auroc']))
-        
-plt.xlim([0.0, 1.0])
-plt.ylim([0.0, 1.05])
-plt.xlabel('False Positive Rate')
-plt.ylabel('True Positive Rate')
-plt.title('Predicting TP53 mutation from gene expression (ROC curves)')
-plt.legend(loc='lower right');
+        roc_output = roc_output.append(pd.DataFrame({
+            'false_positive_rate': roc_df.fpr,
+            'true_positive_rate': roc_df.tpr,
+            'partition': partition,
+            'feature_set': model
+        }))
+auc_output['legend_index'] = range(len(auc_output.index))
+
+roc_output.to_csv('jupyter_data/roc_output.csv', index = False)
+auc_output.to_csv('jupyter_data/auc.csv', index = False)
+
+with open('jupyter_data/roc_vega_spec.json', 'r') as fp:
+    vega_spec = json.load(fp)
+    
+vega.Vega(vega_spec)
 
 
 # ## What are the classifier coefficients?
