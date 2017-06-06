@@ -20,9 +20,8 @@ from sklearn import preprocessing
 from sklearn.linear_model import SGDClassifier
 from sklearn.model_selection import train_test_split, GridSearchCV, ShuffleSplit
 from sklearn.metrics import roc_auc_score, roc_curve
-from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import StandardScaler
-from sklearn.feature_selection import SelectKBest
+from sklearn.pipeline import Pipeline, FeatureUnion
+from sklearn.preprocessing import StandardScaler, FunctionTransformer
 from sklearn.decomposition import PCA
 
 
@@ -78,68 +77,27 @@ y.head(6)
 y.value_counts(True)
 
 
-# ## Pre-process data set
-# TODO: currently running PCA on both train and test partitions
+# ## Set aside 10% of the data for testing
 
 # In[10]:
 
-# Pre-process expression data for use later
-n_components = 100
-scaled_expression = StandardScaler().fit_transform(expression)
-pca = PCA(n_components).fit(scaled_expression)
-explained_variance = pca.explained_variance_
-expression_pca = pca.transform(scaled_expression)
-expression_pca = pd.DataFrame(expression_pca)
-expression_pca = expression_pca.set_index(expression.index.values)
-
-
-# In[11]:
-
-print('fraction of variance explained: ' + str(pca.explained_variance_ratio_.sum()))
-
-
-# In[12]:
-
-# Create full feature matrix (expression + covariates)
-X = pd.concat([covariates,expression_pca],axis=1)
+X = pd.concat([covariates, expression], axis=1)
 print('Gene expression matrix shape: {0[0]}, {0[1]}'.format(expression.shape))
-print('Full feature matrix shape: {0[0]}, {0[1]}'.format(X.shape))
-
-
-# ## Set aside 10% of the data for testing
-
-# In[13]:
+print('Covariates matrix shape: {0[0]}, {0[1]}'.format(covariates.shape))
 
 # Typically, this can only be done where the number of mutations is large enough
-train_index, test_index = next(ShuffleSplit(n_splits=2, test_size=0.1, random_state=0).split(y))
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.1, random_state=0)
 
-X_partitions = {
-    'full': {
-        'train': X.ix[train_index], 
-        'test': X.ix[test_index]
-        },
-    'expressions': {
-        'train': expression_pca.ix[train_index], 
-        'test': expression_pca.ix[test_index]
-        },
-    'covariates': {
-        'train': covariates.ix[train_index], 
-        'test': covariates.ix[test_index]
-        }    
-    } 
-
-y_train = y[train_index]
-y_test = y[test_index]
-
-'Size: {:,} features, {:,} training samples, {:,} testing samples'.format(
-    len(X_partitions['full']['train'].columns), 
-    len(X_partitions['full']['train']), 
-    len(X_partitions['full']['test']))
+# Select the feature set for the different models
+N_COVARIATES = covariates.shape[1]
+def select_feature_set_columns(X, feature_set):
+    if feature_set=='expressions': return X[:, N_COVARIATES:]
+    return  X[:, :N_COVARIATES]
 
 
 # ## Define pipeline and Cross validation model fitting
 
-# In[14]:
+# In[11]:
 
 # Parameter Sweep for Hyperparameters
 param_grid = {
@@ -149,37 +107,66 @@ param_grid = {
     'classify__l1_ratio': [0, 0.2, 0.8, 1],
 }
 
-pipeline = Pipeline(steps=[
+n_components = 100
+
+# Feature selection
+expression_features = Pipeline([
+    ('select_features', FunctionTransformer(select_feature_set_columns,
+        kw_args={'feature_set': 'expressions'})),
     ('standardize', StandardScaler()),
-    ('classify', SGDClassifier(random_state=0, class_weight='balanced'))
+    ('pca', PCA(n_components))
 ])
+covariate_feautes = Pipeline([
+    ('select_features', FunctionTransformer(select_feature_set_columns,
+        kw_args={'feature_set': 'covariates'})),
+    ('standardize', StandardScaler())
+])
+
+# Full model pipelines
+pipeline_definitions = {
+    'full': Pipeline([
+        ('features', FeatureUnion([
+            ('expressions', expression_features),
+            ('covariates', covariate_feautes)
+        ])),
+        ('classify', SGDClassifier(random_state=0, class_weight='balanced'))
+    ]),
+    'expressions': Pipeline([
+        ('features', FeatureUnion([('expressions', expression_features)])),
+        ('classify', SGDClassifier(random_state=0, class_weight='balanced'))
+    ]),
+    'covariates': Pipeline([
+        ('features', FeatureUnion([('covariates', covariate_feautes)])),
+        ('classify', SGDClassifier(random_state=0, class_weight='balanced'))
+    ])
+}
 
 models = ['full', 'expressions', 'covariates']
 
 cv_pipelines = {mod: GridSearchCV(estimator=pipeline, 
                              param_grid=param_grid, 
                              n_jobs=1, 
-                             scoring='roc_auc') for mod in models}
+                             scoring='roc_auc') 
+                for mod, pipeline in pipeline_definitions.items()}
 
 
-# In[15]:
+# In[12]:
 
-get_ipython().run_cell_magic('time', '', "for model, pipeline in cv_pipelines.items():\n    print('Fitting CV for model: {0}'.format(model))\n    pipeline.fit(X=X_partitions.get(model).get('train'), y=y_train)\n# cv_pipeline_full.fit(X=X_train_full, y=y_train)")
+get_ipython().run_cell_magic('time', '', "for model, pipeline in cv_pipelines.items():\n    print('Fitting CV for model: {0}'.format(model))\n    pipeline.fit(X=X_train, y=y_train)")
 
 
-# In[16]:
+# In[13]:
 
-# Best Params
+# Best Parameters
 for model, pipeline in cv_pipelines.items():
     print('{0}: {1:.3%}'.format(model, pipeline.best_score_))
 
-    # Best Params
     print(pipeline.best_params_)
 
 
 # ## Visualize hyperparameters performance
 
-# In[17]:
+# In[14]:
 
 cv_results_df_dict = {model: 
     pd.concat([
@@ -192,7 +179,7 @@ model = 'full'
 cv_results_df_dict[model].head(2)
 
 
-# In[18]:
+# In[15]:
 
 # Cross-validated performance heatmap
 model = 'full'
@@ -208,12 +195,12 @@ ax.set_ylabel('Elastic net mixing parameter (l1_ratio)');
 
 # ## Use Optimal Hyperparameters to Output ROC Curve
 
-# In[19]:
+# In[16]:
 
 y_pred_dict = {
     model: {
-        'train': pipeline.decision_function(X_partitions[model]['train']),
-        'test':  pipeline.decision_function(X_partitions[model]['test'])
+        'train': pipeline.decision_function(X_train),
+        'test':  pipeline.decision_function(X_test)
     } for model, pipeline in cv_pipelines.items()
 }
 
@@ -232,7 +219,7 @@ metrics_dict = {
 }
 
 
-# In[20]:
+# In[17]:
 
 # TODO: do not save intermediate files?
 # Assemble the data for ROC curves
@@ -269,7 +256,7 @@ vega.Vega(vega_spec)
 
 # ## What are the classifier coefficients?
 
-# In[21]:
+# In[18]:
 
 final_pipelines = {
     model: pipeline.best_estimator_
@@ -281,26 +268,33 @@ final_classifiers = {
 }
 
 
-# In[22]:
+# In[53]:
 
-def get_coefficients(classifier, X_mat):
-    coef_df = pd.DataFrame.from_items([
-        ('feature', X_mat.columns),
-        ('weight', classifier.coef_[0]),
-    ])
-
+def get_coefficients(classifier, feature_set):  
+    coefs = classifier.coef_[0]   
+    
+    if feature_set=='expressions':
+        features = ['PCA_%d' %cf for cf in range(len(coefs))]
+    elif feature_set=='covariates': 
+        features = covariates.columns
+    else:        
+        features = ['PCA_%d' %cf for cf in range(len(coefs) - len(covariates.columns))]
+        features.extend(covariates.columns)
+     
+    coef_df = pd.DataFrame({'feature': features, 'weight': coefs})  
+        
     coef_df['abs'] = coef_df['weight'].abs()
     coef_df = coef_df.sort_values('abs', ascending=False)
     
     return coef_df
-
+            
 coef_df_dict = {
-    model: get_coefficients(classifier, X_partitions[model]['train'])
+    model: get_coefficients(classifier, model)
     for model, classifier in final_classifiers.items()
 }
 
 
-# In[23]:
+# In[54]:
 
 model = 'full'
 
@@ -314,32 +308,28 @@ coef_df_dict[model].head(10)
 
 # ## Investigate the predictions
 
-# In[24]:
+# In[35]:
 
 model = 'full'
 
-X_all = X_partitions[model]['train'].append(X_partitions[model]['test'])
-X_test_index = X_partitions[model]['test'].index
-y_all = y_train.append(y_test)
-
 predict_df = pd.DataFrame.from_items([
-    ('sample_id', X_all.index),
-    ('testing', X_all.index.isin(X_test_index).astype(int)),
-    ('status', y_all),
-    ('decision_function', final_pipelines[model].decision_function(X_all)),
-    ('probability', final_pipelines[model].predict_proba(X_all)[:, 1])
+    ('sample_id', X.index),
+    ('testing', X.index.isin(X_test.index).astype(int)),
+    ('status', y),
+    ('decision_function', final_pipelines[model].decision_function(X)),
+    ('probability', final_pipelines[model].predict_proba(X)[:, 1])
 ])
 
 predict_df['probability_str'] = predict_df['probability'].apply('{:.1%}'.format)
 
 
-# In[25]:
+# In[36]:
 
 # Top predictions amongst negatives (potential hidden responders)
 predict_df.sort_values('decision_function', ascending=False).query("status == 0").head(10)
 
 
-# In[26]:
+# In[37]:
 
 # Ignore numpy warning caused by seaborn
 warnings.filterwarnings('ignore', 'using a non-integer number instead of an integer')
@@ -348,7 +338,7 @@ ax = sns.distplot(predict_df.query("status == 0").decision_function, hist=False,
 ax = sns.distplot(predict_df.query("status == 1").decision_function, hist=False, label='Positives')
 
 
-# In[27]:
+# In[38]:
 
 ax = sns.distplot(predict_df.query("status == 0").probability, hist=False, label='Negatives')
 ax = sns.distplot(predict_df.query("status == 1").probability, hist=False, label='Positives')
