@@ -100,23 +100,39 @@ def select_feature_set_columns(X, feature_set):
 # In[11]:
 
 # Parameter Sweep for Hyperparameters
-param_grid = {
-    'classify__loss': ['log'],
-    'classify__penalty': ['elasticnet'],
-    'classify__alpha': [10 ** x for x in range(-3, 1)],
-    'classify__l1_ratio': [0, 0.2, 0.8, 1],
-}
+n_components_list = [50, 100]
 
-n_components = 100
+param_grids = {
+    'full': {
+        'features__expressions__pca__n_components' : n_components_list,
+        'classify__loss': ['log'],
+        'classify__penalty': ['elasticnet'],
+        'classify__alpha': [10 ** x for x in range(-3, 1)],
+        'classify__l1_ratio': [0, 0.2, 0.8, 1],
+    },
+    'expressions': {
+        'features__expressions__pca__n_components' : n_components_list,
+        'classify__loss': ['log'],
+        'classify__penalty': ['elasticnet'],
+        'classify__alpha': [10 ** x for x in range(-3, 1)],
+        'classify__l1_ratio': [0, 0.2, 0.8, 1],
+    },
+    'covariates': {
+        'classify__loss': ['log'],
+        'classify__penalty': ['elasticnet'],
+        'classify__alpha': [10 ** x for x in range(-3, 1)],
+        'classify__l1_ratio': [0, 0.2, 0.8, 1],
+    }
+}
 
 # Feature selection
 expression_features = Pipeline([
     ('select_features', FunctionTransformer(select_feature_set_columns,
         kw_args={'feature_set': 'expressions'})),
     ('standardize', StandardScaler()),
-    ('pca', PCA(n_components))
+    ('pca', PCA())
 ])
-covariate_feautes = Pipeline([
+covariate_features = Pipeline([
     ('select_features', FunctionTransformer(select_feature_set_columns,
         kw_args={'feature_set': 'covariates'})),
     ('standardize', StandardScaler())
@@ -127,7 +143,7 @@ pipeline_definitions = {
     'full': Pipeline([
         ('features', FeatureUnion([
             ('expressions', expression_features),
-            ('covariates', covariate_feautes)
+            ('covariates', covariate_features)
         ])),
         ('classify', SGDClassifier(random_state=0, class_weight='balanced'))
     ]),
@@ -136,7 +152,7 @@ pipeline_definitions = {
         ('classify', SGDClassifier(random_state=0, class_weight='balanced'))
     ]),
     'covariates': Pipeline([
-        ('features', FeatureUnion([('covariates', covariate_feautes)])),
+        ('features', FeatureUnion([('covariates', covariate_features)])),
         ('classify', SGDClassifier(random_state=0, class_weight='balanced'))
     ])
 }
@@ -144,7 +160,7 @@ pipeline_definitions = {
 models = ['full', 'expressions', 'covariates']
 
 cv_pipelines = {mod: GridSearchCV(estimator=pipeline, 
-                             param_grid=param_grid, 
+                             param_grid=param_grids[mod], 
                              n_jobs=1, 
                              scoring='roc_auc') 
                 for mod, pipeline in pipeline_definitions.items()}
@@ -268,7 +284,7 @@ final_classifiers = {
 }
 
 
-# In[53]:
+# In[19]:
 
 def get_coefficients(classifier, feature_set):  
     coefs = classifier.coef_[0]   
@@ -294,7 +310,7 @@ coef_df_dict = {
 }
 
 
-# In[54]:
+# In[20]:
 
 model = 'full'
 
@@ -308,7 +324,7 @@ coef_df_dict[model].head(10)
 
 # ## Investigate the predictions
 
-# In[35]:
+# In[21]:
 
 model = 'full'
 
@@ -323,13 +339,13 @@ predict_df = pd.DataFrame.from_items([
 predict_df['probability_str'] = predict_df['probability'].apply('{:.1%}'.format)
 
 
-# In[36]:
+# In[22]:
 
 # Top predictions amongst negatives (potential hidden responders)
 predict_df.sort_values('decision_function', ascending=False).query("status == 0").head(10)
 
 
-# In[37]:
+# In[23]:
 
 # Ignore numpy warning caused by seaborn
 warnings.filterwarnings('ignore', 'using a non-integer number instead of an integer')
@@ -338,7 +354,7 @@ ax = sns.distplot(predict_df.query("status == 0").decision_function, hist=False,
 ax = sns.distplot(predict_df.query("status == 1").decision_function, hist=False, label='Positives')
 
 
-# In[38]:
+# In[24]:
 
 ax = sns.distplot(predict_df.query("status == 0").probability, hist=False, label='Negatives')
 ax = sns.distplot(predict_df.query("status == 1").probability, hist=False, label='Positives')
