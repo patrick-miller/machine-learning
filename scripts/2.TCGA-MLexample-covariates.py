@@ -24,7 +24,7 @@ from sklearn.pipeline import Pipeline, FeatureUnion
 from sklearn.preprocessing import StandardScaler, FunctionTransformer
 from sklearn.decomposition import PCA
 
-from utils import fill_spec_with_data
+from utils import fill_spec_with_data, get_model_coefficients
 
 
 # In[2]:
@@ -283,35 +283,13 @@ final_classifiers = {
     model: pipeline.named_steps['classify']
     for model, pipeline in final_pipelines.items()
 }
-
-
-# In[19]:
-
-def get_coefficients(classifier, feature_set):  
-    coefs = classifier.coef_[0]   
-    
-    if feature_set=='expressions':
-        features = ['PCA_%d' %cf for cf in range(len(coefs))]
-    elif feature_set=='covariates': 
-        features = covariates.columns
-    else:        
-        features = ['PCA_%d' %cf for cf in range(len(coefs) - len(covariates.columns))]
-        features.extend(covariates.columns)
-     
-    coef_df = pd.DataFrame({'feature': features, 'weight': coefs})  
-        
-    coef_df['abs'] = coef_df['weight'].abs()
-    coef_df = coef_df.sort_values('abs', ascending=False)
-    
-    return coef_df
-            
 coef_df_dict = {
-    model: get_coefficients(classifier, model)
+    model: get_model_coefficients(classifier, model, covariates.columns)
     for model, classifier in final_classifiers.items()
 }
 
 
-# In[20]:
+# In[19]:
 
 model = 'full'
 
@@ -325,7 +303,7 @@ coef_df_dict[model].head(10)
 
 # ## Investigate the predictions
 
-# In[21]:
+# In[20]:
 
 model = 'full'
 
@@ -340,13 +318,13 @@ predict_df = pd.DataFrame.from_items([
 predict_df['probability_str'] = predict_df['probability'].apply('{:.1%}'.format)
 
 
-# In[22]:
+# In[21]:
 
 # Top predictions amongst negatives (potential hidden responders)
 predict_df.sort_values('decision_function', ascending=False).query("status == 0").head(10)
 
 
-# In[23]:
+# In[22]:
 
 # Ignore numpy warning caused by seaborn
 warnings.filterwarnings('ignore', 'using a non-integer number instead of an integer')
@@ -355,7 +333,7 @@ ax = sns.distplot(predict_df.query("status == 0").decision_function, hist=False,
 ax = sns.distplot(predict_df.query("status == 1").decision_function, hist=False, label='Positives')
 
 
-# In[24]:
+# In[23]:
 
 ax = sns.distplot(predict_df.query("status == 0").probability, hist=False, label='Negatives')
 ax = sns.distplot(predict_df.query("status == 1").probability, hist=False, label='Positives')
