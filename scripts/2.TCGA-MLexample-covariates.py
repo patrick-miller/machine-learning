@@ -8,7 +8,6 @@
 import os
 import time
 import datetime
-import warnings
 
 import pandas as pd
 import numpy as np
@@ -74,8 +73,8 @@ y.head(6)
 
 # In[9]:
 
-print('Gene expression matrix shape: {0[0]}, {0[1]}'.format(expression.shape))
-print('Covariates matrix shape: {0[0]}, {0[1]}'.format(covariates.shape))
+print('Gene expression matrix shape: {}'.format(expression.shape))
+print('Covariates matrix shape: {}'.format(covariates.shape))
 
 
 # ## Set aside 10% of the data for testing
@@ -317,8 +316,7 @@ pd.crosstab(coef_df.feature_set, np.sign(coef_df.weight))
 
 # In[22]:
 
-model = 'full'
-model_coef_df = coef_df[coef_df['feature_set'] == model]
+model_coef_df = coef_df[coef_df['feature_set'] == 'full']
 model_coef_df.head(10)
 
 
@@ -354,11 +352,7 @@ model = 'full'
 
 # In[25]:
 
-# Ignore numpy warning caused by seaborn
-warnings.filterwarnings('ignore', 'using a non-integer number instead of an integer')
-
-model = 'full'
-model_predict_df = predict_df[predict_df['feature_set'] == model]
+model_predict_df = predict_df[predict_df['feature_set'] == 'full']
 
 ax = sns.distplot(model_predict_df.query("status == 0").probability, hist=False, label='Negatives')
 ax = sns.distplot(model_predict_df.query("status == 1").probability, hist=False, label='Positives')
