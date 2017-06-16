@@ -6,6 +6,7 @@
 # In[1]:
 
 import os
+import time
 import urllib
 import random
 import warnings
@@ -90,44 +91,17 @@ print('Covariates matrix shape: {0[0]}, {0[1]}'.format(covariates.shape))
 # Typically, this can only be done where the number of mutations is large enough
 X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.1, random_state=0)
 
-# Select the feature set for the different models
-N_COVARIATES = covariates.shape[1]
+
+# ## Feature selection
+
+# In[11]:
+
+# Select the feature set for the different models within the pipeline
+N_COVARIATES = len(covariates.columns)
 def select_feature_set_columns(X, feature_set):
     if feature_set=='expressions': return X[:, N_COVARIATES:]
     return  X[:, :N_COVARIATES]
 
-
-# ## Define pipeline and Cross validation model fitting
-
-# In[11]:
-
-# Parameter Sweep for Hyperparameters
-n_components_list = [50, 100]
-
-param_grids = {
-    'full': {
-        'features__expressions__pca__n_components' : n_components_list,
-        'classify__loss': ['log'],
-        'classify__penalty': ['elasticnet'],
-        'classify__alpha': [10 ** x for x in range(-3, 1)],
-        'classify__l1_ratio': [0, 0.2, 0.8, 1],
-    },
-    'expressions': {
-        'features__expressions__pca__n_components' : n_components_list,
-        'classify__loss': ['log'],
-        'classify__penalty': ['elasticnet'],
-        'classify__alpha': [10 ** x for x in range(-3, 1)],
-        'classify__l1_ratio': [0, 0.2, 0.8, 1],
-    },
-    'covariates': {
-        'classify__loss': ['log'],
-        'classify__penalty': ['elasticnet'],
-        'classify__alpha': [10 ** x for x in range(-3, 1)],
-        'classify__l1_ratio': [0, 0.2, 0.8, 1],
-    }
-}
-
-# Feature selection
 expression_features = Pipeline([
     ('select_features', FunctionTransformer(select_feature_set_columns,
         kw_args={'feature_set': 'expressions'})),
@@ -140,6 +114,42 @@ covariate_features = Pipeline([
     ('standardize', StandardScaler())
 ])
 
+
+# ## Elastic net classifier and model paraemeters
+
+# In[12]:
+
+# Parameter Sweep for Hyperparameters
+n_components_list = [50, 100]
+regularization_alpha_list = [10 ** x for x in range(-3, 1)]
+regularization_l1_ratio = 0.15
+
+param_grids = {
+    'full': {
+        'features__expressions__pca__n_components' : n_components_list,
+        'classify__alpha': regularization_alpha_list
+    },
+    'expressions': {
+        'features__expressions__pca__n_components' : n_components_list,
+        'classify__alpha': regularization_alpha_list
+    },
+    'covariates': {
+        'classify__alpha': regularization_alpha_list
+    }
+}
+
+# Classifier: Elastic Net
+classifier = SGDClassifier(penalty='elasticnet',
+                           l1_ratio=regularization_l1_ratio,
+                           loss='log', 
+                           class_weight='balanced',
+                           random_state=0)
+
+
+# ## Define pipeline and cross validation
+
+# In[13]:
+
 # Full model pipelines
 pipeline_definitions = {
     'full': Pipeline([
@@ -147,33 +157,47 @@ pipeline_definitions = {
             ('expressions', expression_features),
             ('covariates', covariate_features)
         ])),
-        ('classify', SGDClassifier(random_state=0, class_weight='balanced'))
+        ('classify', classifier)
     ]),
     'expressions': Pipeline([
         ('features', FeatureUnion([('expressions', expression_features)])),
-        ('classify', SGDClassifier(random_state=0, class_weight='balanced'))
+        ('classify', classifier)
     ]),
     'covariates': Pipeline([
         ('features', FeatureUnion([('covariates', covariate_features)])),
-        ('classify', SGDClassifier(random_state=0, class_weight='balanced'))
+        ('classify', classifier)
     ])
 }
 
 models = ['full', 'expressions', 'covariates']
 
 cv_pipelines = {mod: GridSearchCV(estimator=pipeline, 
-                             param_grid=param_grids[mod], 
-                             n_jobs=1, 
-                             scoring='roc_auc') 
+                                  param_grid=param_grids[mod], 
+                                  n_jobs=1, 
+                                  scoring='roc_auc') 
                 for mod, pipeline in pipeline_definitions.items()}
 
 
-# In[12]:
+# In[14]:
 
-get_ipython().run_cell_magic('time', '', "for model, pipeline in cv_pipelines.items():\n    print('Fitting CV for model: {0}'.format(model))\n    pipeline.fit(X=X_train, y=y_train)")
+st = time.perf_counter()
+
+# Fit the models
+for model, pipeline in cv_pipelines.items():
+    print('Fitting CV for model: {0}'.format(model))
+    pipeline.fit(X=X_train, y=y_train)
+    
+et = time.perf_counter()
+
+def pretty_time(seconds):    
+    m, s = divmod(seconds, 60)
+    h, m = divmod(m, 60)
+    return "%d:%02d:%02d" % (h, m, s)
+
+print('Time to fit models: {0}'.format(pretty_time(et - st)))
 
 
-# In[13]:
+# In[15]:
 
 # Best Parameters
 for model, pipeline in cv_pipelines.items():
@@ -184,36 +208,38 @@ for model, pipeline in cv_pipelines.items():
 
 # ## Visualize hyperparameters performance
 
-# In[14]:
+# In[16]:
 
-cv_results_df_dict = {model: 
-    pd.concat([
+def build_cv_results_df(pipeline, feature_set):
+    df = pd.concat([
         pd.DataFrame(pipeline.cv_results_),
-        pd.DataFrame.from_records(pipeline.cv_results_['params']),
-    ], axis='columns') for model, pipeline in cv_pipelines.items()}
+        pd.DataFrame.from_records(pipeline.cv_results_['params'])
+    ], axis='columns')
+    df['feature_set'] = feature_set
+    return df
 
-model = 'full'
+cv_results_df = pd.concat([
+    build_cv_results_df(pipeline, model)
+    for model, pipeline in cv_pipelines.items()])
 
-cv_results_df_dict[model].head(2)
+cv_results_df.head(2)
 
 
-# In[15]:
+# In[17]:
 
 # Cross-validated performance heatmap
-model = 'full'
-
-cv_score_mat = pd.pivot_table(cv_results_df_dict[model],
+cv_score_mat = pd.pivot_table(cv_results_df,
                               values='mean_test_score', 
-                              index='classify__l1_ratio',
+                              index='feature_set',
                               columns='classify__alpha')
 ax = sns.heatmap(cv_score_mat, annot=True, fmt='.1%')
 ax.set_xlabel('Regularization strength multiplier (alpha)')
-ax.set_ylabel('Elastic net mixing parameter (l1_ratio)');
+ax.set_ylabel('Feature Set');
 
 
-# ## Use Optimal Hyperparameters to Output ROC Curve
+# ## Use optimal hyperparameters to output ROC curve
 
-# In[16]:
+# In[18]:
 
 y_pred_dict = {
     model: {
@@ -237,7 +263,7 @@ metrics_dict = {
 }
 
 
-# In[17]:
+# In[19]:
 
 # Assemble the data for ROC curves
 model_order = ['full', 'expressions', 'covariates']
@@ -273,7 +299,7 @@ Vega(final_spec)
 
 # ## What are the classifier coefficients?
 
-# In[18]:
+# In[20]:
 
 final_pipelines = {
     model: pipeline.best_estimator_
@@ -283,27 +309,31 @@ final_classifiers = {
     model: pipeline.named_steps['classify']
     for model, pipeline in final_pipelines.items()
 }
-coef_df_dict = {
-    model: get_model_coefficients(classifier, model, covariates.columns)
+
+coef_df = pd.concat([
+    get_model_coefficients(classifier, model, covariates.columns)
     for model, classifier in final_classifiers.items()
-}
+])
 
 
-# In[19]:
+# In[28]:
 
 model = 'full'
 
+model_coef_df = coef_df[coef_df['feature_set'] == model]
+
 print('{:.1%} zero coefficients; {:,} negative and {:,} positive coefficients'.format(
-    (coef_df_dict[model].weight == 0).mean(),
-    (coef_df_dict[model].weight < 0).sum(),
-    (coef_df_dict[model].weight > 0).sum()
+    (model_coef_df.weight == 0).mean(),
+    (model_coef_df.weight < 0).sum(),
+    (model_coef_df.weight > 0).sum()
 ))
-coef_df_dict[model].head(10)
+
+model_coef_df.head(10)
 
 
 # ## Investigate the predictions
 
-# In[20]:
+# In[29]:
 
 model = 'full'
 
@@ -318,13 +348,13 @@ predict_df = pd.DataFrame.from_items([
 predict_df['probability_str'] = predict_df['probability'].apply('{:.1%}'.format)
 
 
-# In[21]:
+# In[30]:
 
 # Top predictions amongst negatives (potential hidden responders)
 predict_df.sort_values('decision_function', ascending=False).query("status == 0").head(10)
 
 
-# In[22]:
+# In[31]:
 
 # Ignore numpy warning caused by seaborn
 warnings.filterwarnings('ignore', 'using a non-integer number instead of an integer')
@@ -333,7 +363,7 @@ ax = sns.distplot(predict_df.query("status == 0").decision_function, hist=False,
 ax = sns.distplot(predict_df.query("status == 1").decision_function, hist=False, label='Positives')
 
 
-# In[23]:
+# In[32]:
 
 ax = sns.distplot(predict_df.query("status == 0").probability, hist=False, label='Negatives')
 ax = sns.distplot(predict_df.query("status == 1").probability, hist=False, label='Positives')

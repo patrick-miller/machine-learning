@@ -99,5 +99,7 @@ def get_model_coefficients(classifier, feature_set, covariate_names):
         
     coef_df['abs'] = coef_df['weight'].abs()
     coef_df = coef_df.sort_values('abs', ascending=False)
+    coef_df['feature_set'] = feature_set
+    
     
     return coef_df
