@@ -7,8 +7,7 @@
 
 import os
 import time
-import urllib
-import random
+import datetime
 import warnings
 
 import pandas as pd
@@ -76,7 +75,7 @@ y.head(6)
 
 # In[9]:
 
-# Here are the percentage of tumors with NF1
+# Here are the percentage of tumors with TP53
 y.value_counts(True)
 
 
@@ -97,10 +96,10 @@ X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.1, random_
 # In[11]:
 
 # Select the feature set for the different models within the pipeline
-N_COVARIATES = len(covariates.columns)
+n_covariates = len(covariates.columns)
 def select_feature_set_columns(X, feature_set):
-    if feature_set=='expressions': return X[:, N_COVARIATES:]
-    return  X[:, :N_COVARIATES]
+    if feature_set=='expressions': return X[:, n_covariates:]
+    return  X[:, :n_covariates]
 
 expression_features = Pipeline([
     ('select_features', FunctionTransformer(select_feature_set_columns,
@@ -188,13 +187,7 @@ for model, pipeline in cv_pipelines.items():
     pipeline.fit(X=X_train, y=y_train)
     
 et = time.perf_counter()
-
-def pretty_time(seconds):    
-    m, s = divmod(seconds, 60)
-    h, m = divmod(m, 60)
-    return "%d:%02d:%02d" % (h, m, s)
-
-print('Time to fit models: {0}'.format(pretty_time(et - st)))
+print('Time to fit models: {0}'.format(str(datetime.timedelta(seconds=et-st))))
 
 
 # In[15]:
@@ -210,17 +203,14 @@ for model, pipeline in cv_pipelines.items():
 
 # In[16]:
 
-def build_cv_results_df(pipeline, feature_set):
+cv_results_df = pd.DataFrame()
+for model, pipeline in cv_pipelines.items():
     df = pd.concat([
         pd.DataFrame(pipeline.cv_results_),
         pd.DataFrame.from_records(pipeline.cv_results_['params'])
     ], axis='columns')
-    df['feature_set'] = feature_set
-    return df
-
-cv_results_df = pd.concat([
-    build_cv_results_df(pipeline, model)
-    for model, pipeline in cv_pipelines.items()])
+    df['feature_set'] = model
+    cv_results_df = cv_results_df.append(df)
 
 cv_results_df.head(2)
 
@@ -316,24 +306,25 @@ coef_df = pd.concat([
 ])
 
 
-# In[28]:
+# In[21]:
+
+def zero(w): return '{:.1%}'.format(np.mean(w == 0))
+def negative(w): return '{:,}'.format(np.sum(w < 0))
+def positive(w): return '{:,}'.format(np.sum(w > 0))
+
+coef_df.groupby('feature_set')['weight'].agg([zero, negative, positive])
+
+
+# In[22]:
 
 model = 'full'
-
 model_coef_df = coef_df[coef_df['feature_set'] == model]
-
-print('{:.1%} zero coefficients; {:,} negative and {:,} positive coefficients'.format(
-    (model_coef_df.weight == 0).mean(),
-    (model_coef_df.weight < 0).sum(),
-    (model_coef_df.weight > 0).sum()
-))
-
 model_coef_df.head(10)
 
 
 # ## Investigate the predictions
 
-# In[29]:
+# In[23]:
 
 model = 'full'
 
@@ -348,13 +339,13 @@ predict_df = pd.DataFrame.from_items([
 predict_df['probability_str'] = predict_df['probability'].apply('{:.1%}'.format)
 
 
-# In[30]:
+# In[24]:
 
 # Top predictions amongst negatives (potential hidden responders)
 predict_df.sort_values('decision_function', ascending=False).query("status == 0").head(10)
 
 
-# In[31]:
+# In[25]:
 
 # Ignore numpy warning caused by seaborn
 warnings.filterwarnings('ignore', 'using a non-integer number instead of an integer')
@@ -363,7 +354,7 @@ ax = sns.distplot(predict_df.query("status == 0").decision_function, hist=False,
 ax = sns.distplot(predict_df.query("status == 1").decision_function, hist=False, label='Positives')
 
 
-# In[32]:
+# In[26]:
 
 ax = sns.distplot(predict_df.query("status == 0").probability, hist=False, label='Negatives')
 ax = sns.distplot(predict_df.query("status == 1").probability, hist=False, label='Positives')
