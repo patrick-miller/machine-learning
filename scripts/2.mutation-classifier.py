@@ -18,11 +18,9 @@ from sklearn.model_selection import train_test_split, StratifiedKFold
 from dask_searchcv import GridSearchCV
 from sklearn.pipeline import Pipeline, FeatureUnion
 from sklearn.preprocessing import StandardScaler, FunctionTransformer
-from vega import Vega
-import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import seaborn as sns
+from plotnine import *
 
 from utils import fill_spec_with_data, get_model_coefficients, get_genes_coefficients
 
@@ -31,7 +29,6 @@ from utils import fill_spec_with_data, get_model_coefficients, get_genes_coeffic
 
 
 get_ipython().magic('matplotlib inline')
-plt.style.use('seaborn-notebook')
 
 
 # ## Specify model configuration
@@ -296,13 +293,16 @@ for model, pipeline in cv_pipelines.items():
 
 
 # Cross-validated performance heatmap
-cv_score_mat = pd.pivot_table(cv_results_df,
-                              values='mean_test_score', 
-                              index='feature_set',
-                              columns='classify__alpha')
-ax = sns.heatmap(cv_score_mat, annot=True, fmt='.1%')
-ax.set_xlabel('Regularization strength multiplier (alpha)')
-ax.set_ylabel('Feature Set');
+cv_results_df['classify__alpha'] = cv_results_df['classify__alpha'].astype(str)
+
+(ggplot(cv_results_df, aes(x='classify__alpha',
+                           y='mean_test_score',
+                           fill='feature_set'))
+ + geom_bar(stat='identity', position='dodge')
+ + labs(x='Regularization strength multiplier (alpha)',
+        y='CV AUROC')
+ + guides(fill=guide_legend(title="Feature Set"))
+)
 
 
 # ## Use optimal hyperparameters to output ROC curve
@@ -347,7 +347,7 @@ for model in model_order:
         auc_output = auc_output.append(pd.DataFrame({
             'partition': [partition],
             'feature_set': [model],
-            'auc': metrics['auroc']
+            'auc': metrics['auroc'].round(3)
         }))
         roc_df = metrics['roc_df']
         roc_output = roc_output.append(pd.DataFrame({
@@ -356,20 +356,30 @@ for model in model_order:
             'partition': partition,
             'feature_set': model
         }))
-auc_output['legend_index'] = range(len(auc_output.index))
 
-with open('vega_specs/roc_vega_spec.json', 'r') as fp:
-    vega_spec = json.load(fp)
+(ggplot(roc_output, aes(x='false_positive_rate',
+                        y='true_positive_rate',
+                        color='feature_set',
+                        linetype='partition'))
+ + geom_line(size=0.9, alpha=0.6)
+ + labs(x='false positive rate', y='true positive rate')
+)
 
-final_spec = fill_spec_with_data(vega_spec, 
-    {'roc': roc_output, 'legend_auc': auc_output})
 
-Vega(final_spec)
+# ### AUROC
+
+# In[21]:
+
+
+pd.pivot_table(auc_output,
+               values='auc',
+               index='partition',
+               columns='feature_set')
 
 
 # ## What are the classifier coefficients?
 
-# In[21]:
+# In[22]:
 
 
 final_pipelines = {
@@ -387,7 +397,7 @@ coef_df = pd.concat([
 ])
 
 
-# In[22]:
+# In[23]:
 
 
 # Signs of the coefficients by model
@@ -396,7 +406,7 @@ pd.crosstab(coef_df.feature_set, np.sign(coef_df.weight).rename('coefficient_sig
 
 # ### Top coefficients for covariates model
 
-# In[23]:
+# In[24]:
 
 
 coef_df.query("feature_set == 'full'").head(10)
@@ -404,7 +414,7 @@ coef_df.query("feature_set == 'full'").head(10)
 
 # ### Top coefficients for individual _genes_ for full model
 
-# In[24]:
+# In[25]:
 
 
 pca_for_full = (
@@ -428,7 +438,7 @@ gene_coefficients_for_full.head(10)
 
 # ### Top coefficients for individual _genes_ for expressions model
 
-# In[25]:
+# In[26]:
 
 
 pca_for_expression = (
@@ -451,7 +461,7 @@ gene_coefficients_for_expression.head(10)
 
 # ## Investigate the predictions
 
-# In[26]:
+# In[27]:
 
 
 predict_df = pd.DataFrame()
@@ -469,7 +479,7 @@ for model, pipeline in final_pipelines.items():
 predict_df['probability_str'] = predict_df['probability'].apply('{:.1%}'.format)
 
 
-# In[27]:
+# In[28]:
 
 
 # Top predictions amongst negatives (potential hidden responders to a targeted cancer therapy)
@@ -480,10 +490,15 @@ predict_df['probability_str'] = predict_df['probability'].apply('{:.1%}'.format)
 )
 
 
-# In[28]:
+# In[29]:
 
 
-model_predict_df = predict_df.query("feature_set == 'full'")
-ax = sns.distplot(model_predict_df.query("status == 0").probability, hist=False, label='Negatives')
-ax = sns.distplot(model_predict_df.query("status == 1").probability, hist=False, label='Positives')
+predict_df['status_'] = predict_df['status'].map(
+    lambda x: 'negative' if x == 0 else 'positive')
+
+(ggplot(predict_df, aes(x='probability', fill='status_'))
+ + geom_density(alpha=0.6)
+ + facet_wrap('~feature_set', ncol=1)
+ + labs(x='probability', y='')
+ + guides(fill=guide_legend(title="")))
 
