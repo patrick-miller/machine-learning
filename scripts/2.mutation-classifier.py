@@ -5,6 +5,7 @@
 
 # In[1]:
 
+
 import datetime
 import json
 import os
@@ -17,27 +18,45 @@ from sklearn.model_selection import train_test_split, StratifiedKFold
 from dask_searchcv import GridSearchCV
 from sklearn.pipeline import Pipeline, FeatureUnion
 from sklearn.preprocessing import StandardScaler, FunctionTransformer
-from vega import Vega
-import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import seaborn as sns
+from plotnine import *
 
 from utils import fill_spec_with_data, get_model_coefficients, get_genes_coefficients
 
 
 # In[2]:
 
+
 get_ipython().magic('matplotlib inline')
-plt.style.use('seaborn-notebook')
 
 
 # ## Specify model configuration
 
 # In[3]:
 
-# We're going to be building a 'TP53' classifier 
-mutation_id = '7157' # TP53
+
+# We're going to be building a classifier with multiple genes filtered by two diseases 
+# Example:
+# gene_ids = ['7157', '7158', '7159', '7161']
+
+# Information passed into the notebook is stored in environment variables
+gene_ids = os.environ.get('gene_ids')
+if not gene_ids:
+    gene_ids = ['7157'] # TP53 is the default
+else:
+    gene_ids = gene_ids.split('-')
+    
+disease_acronyms = os.environ.get('disease_acronyms')
+
+if not disease_acronyms:
+    disease_acronyms = [] # use all of the diseases as default
+    # disease_acronyms = ['LUAD', 'BLCA']
+else:
+    disease_acronyms = disease_acronyms.split('-')
+    
+print("Genes: " + str(gene_ids))
+print("Diseases: " + str(disease_acronyms))
 
 
 # *Here is some [documentation](http://scikit-learn.org/stable/modules/generated/sklearn.linear_model.SGDClassifier.html) regarding the classifier and hyperparameters*
@@ -48,38 +67,67 @@ mutation_id = '7157' # TP53
 
 # In[4]:
 
-get_ipython().run_cell_magic('time', '', "path = os.path.join('download', 'expression-matrix.tsv.bz2')\nexpression_df = pd.read_table(path, index_col=0)")
+
+path = os.path.join('download', 'expression-matrix.tsv.bz2')
+expression_df = pd.read_table(path, index_col=0)
+
+path = os.path.join('download', 'mutation-matrix.tsv.bz2')
+mutation_df = pd.read_table(path, index_col=0)
+
+path = os.path.join('download', 'covariates.tsv')
+covariate_df = pd.read_table(path, index_col=0)
 
 
 # In[5]:
 
-get_ipython().run_cell_magic('time', '', "path = os.path.join('download', 'mutation-matrix.tsv.bz2')\nmutation_df = pd.read_table(path, index_col=0)")
+
+# Select acronym_x and n_mutations_log1p covariates only
+disease_cols = [col for col in covariate_df.columns if col.startswith('acronym_')]
+
+# Filter covariate columns by disease if a list was provided
+if disease_acronyms:
+    disease_cols = [col for col in disease_cols if col.endswith(tuple(disease_acronyms))]
+    
+selected_cols = disease_cols + ['n_mutations_log1p']
+covariate_df = covariate_df[selected_cols]
 
 
 # In[6]:
+
 
 get_ipython().run_cell_magic('time', '', "path = os.path.join('download', 'expression-genes.tsv')\nexpression_genes_df = pd.read_table(path, index_col=0)")
 
 
 # In[7]:
 
-path = os.path.join('download', 'covariates.tsv')
-covariate_df = pd.read_table(path, index_col=0)
 
-# Select acronym_x and n_mutations_log1p covariates only
-selected_cols = [col for col in covariate_df.columns if col.startswith('acronym_')]
-selected_cols.append('n_mutations_log1p')
-covariate_df = covariate_df[selected_cols]
+# Filter the rows by disease type
+# subsection of columns with row-wise max
+has_disease = covariate_df[disease_cols].max(axis=1) > 0
+covariate_df = covariate_df[has_disease]
 
 
 # In[8]:
 
-# The series holds TP53 Mutation Status for each sample
-y = mutation_df[mutation_id]
-y.head(6)
+
+# filter by sample_id
+expression_df = expression_df[expression_df.index.isin(covariate_df.index)]
+
+# filter by sample_id
+mutation_df = mutation_df[mutation_df.index.isin(covariate_df.index)]
 
 
 # In[9]:
+
+
+# The series holds Gene Mutation Status for each sample
+# Take max of mutation status, meaning if any of the genes mutated the value should be 1
+y = mutation_df[gene_ids].max(axis=1)
+y.head(6)
+
+
+# In[10]:
+
 
 print('Gene expression matrix shape: {}'.format(expression_df.shape))
 print('Covariates matrix shape: {}'.format(covariate_df.shape))
@@ -87,7 +135,8 @@ print('Covariates matrix shape: {}'.format(covariate_df.shape))
 
 # ## Set aside 10% of the data for testing
 
-# In[10]:
+# In[11]:
+
 
 # Typically, this type of split can only be done 
 # for genes where the number of mutations is large enough
@@ -100,7 +149,8 @@ y.value_counts(True)
 
 # ## Feature selection
 
-# In[11]:
+# In[12]:
+
 
 def select_feature_set_columns(X, feature_set):
     """
@@ -133,7 +183,8 @@ covariate_features = Pipeline([
 
 # ## Elastic net classifier and model paraemeters
 
-# In[12]:
+# In[13]:
+
 
 # Parameter Sweep for Hyperparameters
 n_components_list = [50, 100]
@@ -164,7 +215,8 @@ classifier = SGDClassifier(penalty='elasticnet',
 
 # ## Define pipeline and cross validation
 
-# In[13]:
+# In[14]:
+
 
 # Full model pipelines
 pipeline_definitions = {
@@ -199,7 +251,8 @@ for model, pipeline in pipeline_definitions.items():
     cv_pipelines[model] = grid_search
 
 
-# In[14]:
+# In[15]:
+
 
 # Fit the models
 for model, pipeline in cv_pipelines.items():
@@ -211,7 +264,8 @@ for model, pipeline in cv_pipelines.items():
     print('\truntime: {}'.format(elapsed))
 
 
-# In[15]:
+# In[16]:
+
 
 # Best Parameters
 for model, pipeline in cv_pipelines.items():
@@ -222,7 +276,8 @@ for model, pipeline in cv_pipelines.items():
 
 # ## Visualize hyperparameters performance
 
-# In[16]:
+# In[17]:
+
 
 cv_results_df = pd.DataFrame()
 for model, pipeline in cv_pipelines.items():
@@ -234,21 +289,26 @@ for model, pipeline in cv_pipelines.items():
     cv_results_df = cv_results_df.append(df)
 
 
-# In[17]:
+# In[18]:
+
 
 # Cross-validated performance heatmap
-cv_score_mat = pd.pivot_table(cv_results_df,
-                              values='mean_test_score', 
-                              index='feature_set',
-                              columns='classify__alpha')
-ax = sns.heatmap(cv_score_mat, annot=True, fmt='.1%')
-ax.set_xlabel('Regularization strength multiplier (alpha)')
-ax.set_ylabel('Feature Set');
+cv_results_df['classify__alpha'] = cv_results_df['classify__alpha'].astype(str)
+
+(ggplot(cv_results_df, aes(x='classify__alpha',
+                           y='mean_test_score',
+                           fill='feature_set'))
+ + geom_bar(stat='identity', position='dodge')
+ + labs(x='Regularization strength multiplier (alpha)',
+        y='CV AUROC')
+ + guides(fill=guide_legend(title="Feature Set"))
+)
 
 
 # ## Use optimal hyperparameters to output ROC curve
 
-# In[18]:
+# In[19]:
+
 
 y_pred_dict = {
     model: {
@@ -272,7 +332,8 @@ metrics_dict = {
 }
 
 
-# In[19]:
+# In[20]:
+
 
 # Assemble the data for ROC curves
 model_order = ['full', 'expressions', 'covariates']
@@ -286,7 +347,7 @@ for model in model_order:
         auc_output = auc_output.append(pd.DataFrame({
             'partition': [partition],
             'feature_set': [model],
-            'auc': metrics['auroc']
+            'auc': metrics['auroc'].round(3)
         }))
         roc_df = metrics['roc_df']
         roc_output = roc_output.append(pd.DataFrame({
@@ -295,20 +356,31 @@ for model in model_order:
             'partition': partition,
             'feature_set': model
         }))
-auc_output['legend_index'] = range(len(auc_output.index))
 
-with open('vega_specs/roc_vega_spec.json', 'r') as fp:
-    vega_spec = json.load(fp)
+(ggplot(roc_output, aes(x='false_positive_rate',
+                        y='true_positive_rate',
+                        color='feature_set',
+                        linetype='partition'))
+ + geom_line(size=0.9, alpha=0.6)
+ + labs(x='false positive rate', y='true positive rate')
+)
 
-final_spec = fill_spec_with_data(vega_spec, 
-    {'roc': roc_output, 'legend_auc': auc_output})
 
-Vega(final_spec)
+# ### AUROC
+
+# In[21]:
+
+
+pd.pivot_table(auc_output,
+               values='auc',
+               index='partition',
+               columns='feature_set')
 
 
 # ## What are the classifier coefficients?
 
-# In[20]:
+# In[22]:
+
 
 final_pipelines = {
     model: pipeline.best_estimator_
@@ -325,7 +397,8 @@ coef_df = pd.concat([
 ])
 
 
-# In[21]:
+# In[23]:
+
 
 # Signs of the coefficients by model
 pd.crosstab(coef_df.feature_set, np.sign(coef_df.weight).rename('coefficient_sign'))
@@ -333,21 +406,16 @@ pd.crosstab(coef_df.feature_set, np.sign(coef_df.weight).rename('coefficient_sig
 
 # ### Top coefficients for covariates model
 
-# In[22]:
+# In[24]:
 
-coef_df.query("feature_set == 'covariates'").head(10)
-
-
-# ### Top coefficients for full model
-
-# In[23]:
 
 coef_df.query("feature_set == 'full'").head(10)
 
 
 # ### Top coefficients for individual _genes_ for full model
 
-# In[24]:
+# In[25]:
+
 
 pca_for_full = (
     final_pipelines['full']
@@ -370,7 +438,8 @@ gene_coefficients_for_full.head(10)
 
 # ### Top coefficients for individual _genes_ for expressions model
 
-# In[25]:
+# In[26]:
+
 
 pca_for_expression = (
     final_pipelines['expressions']
@@ -392,7 +461,8 @@ gene_coefficients_for_expression.head(10)
 
 # ## Investigate the predictions
 
-# In[26]:
+# In[27]:
+
 
 predict_df = pd.DataFrame()
 for model, pipeline in final_pipelines.items():
@@ -409,7 +479,8 @@ for model, pipeline in final_pipelines.items():
 predict_df['probability_str'] = predict_df['probability'].apply('{:.1%}'.format)
 
 
-# In[27]:
+# In[28]:
+
 
 # Top predictions amongst negatives (potential hidden responders to a targeted cancer therapy)
 (predict_df
@@ -419,9 +490,15 @@ predict_df['probability_str'] = predict_df['probability'].apply('{:.1%}'.format)
 )
 
 
-# In[28]:
+# In[29]:
 
-model_predict_df = predict_df.query("feature_set == 'full'")
-ax = sns.distplot(model_predict_df.query("status == 0").probability, hist=False, label='Negatives')
-ax = sns.distplot(model_predict_df.query("status == 1").probability, hist=False, label='Positives')
+
+predict_df['status_'] = predict_df['status'].map(
+    lambda x: 'negative' if x == 0 else 'positive')
+
+(ggplot(predict_df, aes(x='probability', fill='status_'))
+ + geom_density(alpha=0.6)
+ + facet_wrap('~feature_set', ncol=1)
+ + labs(x='probability', y='')
+ + guides(fill=guide_legend(title="")))
 
