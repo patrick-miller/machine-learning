@@ -36,35 +36,6 @@ def sanitize_dataframe(df):
             df[col_name] = df[col_name].astype(str).replace('NaT', '')
     return df
 
-def fill_spec_with_data(spec, data):
-    """Take a Vega specification with missing data elements and complete it
-    * Uses an incomplete Vega specification that has named data arguments
-        which have empty values and replaces those missing values with
-        data elements passed in
-    * The Vega specification needs to have named data arguments that match
-        the data that is passed in to this function
-        
-    Args:
-        spec (dictionary): the Vega specification with incomplete data
-        data (named dictionary of pandas.DataFrame): data elements
-        
-    Returns:
-        dictionary: a completed Vega specification ready to be used
-    """
-    data_names = [d['name'] for d in spec['data']]
-    
-    for name, df in data.items():
-        if name not in data_names:
-            raise ValueError('Name not in data spec')
-        for ix in range(len(data_names)):
-            if data_names[ix] == name:
-                break
-                
-        df = sanitize_dataframe(df)
-        spec['data'][ix]['values'] = df.to_dict(orient='records')
-
-    return spec
-
 def get_model_coefficients(classifier, feature_set, covariate_names):
     """
     Extract the feature names and associate them with the coefficient values
