@@ -7,7 +7,6 @@
 
 
 import datetime
-import json
 import os
 import time
 
@@ -20,9 +19,9 @@ from sklearn.pipeline import Pipeline, FeatureUnion
 from sklearn.preprocessing import StandardScaler, FunctionTransformer
 import numpy as np
 import pandas as pd
-from plotnine import *
+import plotnine as gg
 
-from utils import fill_spec_with_data, get_model_coefficients, get_genes_coefficients
+from utils import get_model_coefficients, get_genes_coefficients, theme_cognoma
 
 
 # In[2]:
@@ -77,6 +76,9 @@ mutation_df = pd.read_table(path, index_col=0)
 path = os.path.join('download', 'covariates.tsv')
 covariate_df = pd.read_table(path, index_col=0)
 
+path = os.path.join('download', 'expression-genes.tsv')
+expression_genes_df = pd.read_table(path, index_col=0)
+
 
 # In[5]:
 
@@ -95,19 +97,13 @@ covariate_df = covariate_df[selected_cols]
 # In[6]:
 
 
-get_ipython().run_cell_magic('time', '', "path = os.path.join('download', 'expression-genes.tsv')\nexpression_genes_df = pd.read_table(path, index_col=0)")
-
-
-# In[7]:
-
-
 # Filter the rows by disease type
 # subsection of columns with row-wise max
 has_disease = covariate_df[disease_cols].max(axis=1) > 0
 covariate_df = covariate_df[has_disease]
 
 
-# In[8]:
+# In[7]:
 
 
 # filter by sample_id
@@ -117,7 +113,7 @@ expression_df = expression_df[expression_df.index.isin(covariate_df.index)]
 mutation_df = mutation_df[mutation_df.index.isin(covariate_df.index)]
 
 
-# In[9]:
+# In[8]:
 
 
 # The series holds Gene Mutation Status for each sample
@@ -126,7 +122,7 @@ y = mutation_df[gene_ids].max(axis=1)
 y.head(6)
 
 
-# In[10]:
+# In[9]:
 
 
 print('Gene expression matrix shape: {}'.format(expression_df.shape))
@@ -135,7 +131,7 @@ print('Covariates matrix shape: {}'.format(covariate_df.shape))
 
 # ## Set aside 10% of the data for testing
 
-# In[11]:
+# In[10]:
 
 
 # Typically, this type of split can only be done 
@@ -149,7 +145,7 @@ y.value_counts(True)
 
 # ## Feature selection
 
-# In[12]:
+# In[11]:
 
 
 def select_feature_set_columns(X, feature_set):
@@ -183,7 +179,7 @@ covariate_features = Pipeline([
 
 # ## Elastic net classifier and model paraemeters
 
-# In[13]:
+# In[12]:
 
 
 # Parameter Sweep for Hyperparameters
@@ -215,7 +211,7 @@ classifier = SGDClassifier(penalty='elasticnet',
 
 # ## Define pipeline and cross validation
 
-# In[14]:
+# In[13]:
 
 
 # Full model pipelines
@@ -251,7 +247,7 @@ for model, pipeline in pipeline_definitions.items():
     cv_pipelines[model] = grid_search
 
 
-# In[15]:
+# In[14]:
 
 
 # Fit the models
@@ -264,7 +260,7 @@ for model, pipeline in cv_pipelines.items():
     print('\truntime: {}'.format(elapsed))
 
 
-# In[16]:
+# In[15]:
 
 
 # Best Parameters
@@ -276,7 +272,7 @@ for model, pipeline in cv_pipelines.items():
 
 # ## Visualize hyperparameters performance
 
-# In[17]:
+# In[16]:
 
 
 cv_results_df = pd.DataFrame()
@@ -287,27 +283,32 @@ for model, pipeline in cv_pipelines.items():
     ], axis='columns')
     df['feature_set'] = model
     cv_results_df = cv_results_df.append(df)
+    
+cv_results_summary = (cv_results_df
+    .groupby(['classify__alpha', 'feature_set'])['mean_test_score']
+    .max()
+    .reset_index())
 
 
-# In[18]:
+# In[17]:
 
 
-# Cross-validated performance heatmap
-cv_results_df['classify__alpha'] = cv_results_df['classify__alpha'].astype(str)
-
-(ggplot(cv_results_df, aes(x='classify__alpha',
-                           y='mean_test_score',
-                           fill='feature_set'))
- + geom_bar(stat='identity', position='dodge')
- + labs(x='Regularization strength multiplier (alpha)',
-        y='CV AUROC')
- + guides(fill=guide_legend(title="Feature Set"))
+(gg.ggplot(cv_results_summary, gg.aes(x='classify__alpha',
+                                      y='mean_test_score',
+                                      color='feature_set'))
+ + gg.geom_jitter(size=4, alpha=0.8, height=0, width=0.05)
+ + gg.scale_x_log10()
+ + gg.labs(x='Regularization strength multiplier (log alpha)',
+           y='CV AUROC')
+ + gg.guides(fill=gg.guide_legend(title="Feature Set"))
+ + gg.aes(ymin=min([0.5, cv_results_summary['mean_test_score'].min()]), ymax=1)
+ + theme_cognoma()
 )
 
 
 # ## Use optimal hyperparameters to output ROC curve
 
-# In[19]:
+# In[18]:
 
 
 y_pred_dict = {
@@ -332,7 +333,7 @@ metrics_dict = {
 }
 
 
-# In[20]:
+# In[19]:
 
 
 # Assemble the data for ROC curves
@@ -357,29 +358,30 @@ for model in model_order:
             'feature_set': model
         }))
 
-(ggplot(roc_output, aes(x='false_positive_rate',
-                        y='true_positive_rate',
-                        color='feature_set',
-                        linetype='partition'))
- + geom_line(size=0.9, alpha=0.6)
- + labs(x='false positive rate', y='true positive rate')
+(gg.ggplot(roc_output, gg.aes(x='false_positive_rate',
+                              y='true_positive_rate',
+                              color='feature_set',
+                              linetype='partition'))
+ + gg.geom_line(size=1.1, alpha=0.7)
+ + gg.labs(x='false positive rate', y='true positive rate')
+ + theme_cognoma()
 )
 
 
 # ### AUROC
 
-# In[21]:
+# In[20]:
 
 
 pd.pivot_table(auc_output,
                values='auc',
-               index='partition',
-               columns='feature_set')
+               index='feature_set',
+               columns='partition')
 
 
 # ## What are the classifier coefficients?
 
-# In[22]:
+# In[21]:
 
 
 final_pipelines = {
@@ -397,7 +399,7 @@ coef_df = pd.concat([
 ])
 
 
-# In[23]:
+# In[22]:
 
 
 # Signs of the coefficients by model
@@ -406,7 +408,7 @@ pd.crosstab(coef_df.feature_set, np.sign(coef_df.weight).rename('coefficient_sig
 
 # ### Top coefficients for covariates model
 
-# In[24]:
+# In[23]:
 
 
 coef_df.query("feature_set == 'full'").head(10)
@@ -414,7 +416,7 @@ coef_df.query("feature_set == 'full'").head(10)
 
 # ### Top coefficients for individual _genes_ for full model
 
-# In[25]:
+# In[24]:
 
 
 pca_for_full = (
@@ -438,7 +440,7 @@ gene_coefficients_for_full.head(10)
 
 # ### Top coefficients for individual _genes_ for expressions model
 
-# In[26]:
+# In[25]:
 
 
 pca_for_expression = (
@@ -461,7 +463,7 @@ gene_coefficients_for_expression.head(10)
 
 # ## Investigate the predictions
 
-# In[27]:
+# In[26]:
 
 
 predict_df = pd.DataFrame()
@@ -479,7 +481,7 @@ for model, pipeline in final_pipelines.items():
 predict_df['probability_str'] = predict_df['probability'].apply('{:.1%}'.format)
 
 
-# In[28]:
+# In[27]:
 
 
 # Top predictions amongst negatives (potential hidden responders to a targeted cancer therapy)
@@ -490,15 +492,17 @@ predict_df['probability_str'] = predict_df['probability'].apply('{:.1%}'.format)
 )
 
 
-# In[29]:
+# In[28]:
 
 
 predict_df['status_'] = predict_df['status'].map(
     lambda x: 'negative' if x == 0 else 'positive')
 
-(ggplot(predict_df, aes(x='probability', fill='status_'))
- + geom_density(alpha=0.6)
- + facet_wrap('~feature_set', ncol=1)
- + labs(x='probability', y='')
- + guides(fill=guide_legend(title="")))
+(gg.ggplot(predict_df, gg.aes(x='probability', 
+                              fill='status_'))
+ + gg.geom_density(alpha=0.6)
+ + gg.facet_wrap('~feature_set', ncol=1)
+ + gg.labs(x='probability', y='density')
+ + gg.guides(fill=gg.guide_legend(title=""))
+ + theme_cognoma())
 

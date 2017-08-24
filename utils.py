@@ -1,40 +1,22 @@
-def sanitize_dataframe(df):
-    """Sanitize a DataFrame to prepare it for serialization.
-    * Make a copy
-    * Raise ValueError if it has a hierarchical index.
-    * Convert categoricals to strings.
-    * Convert np.int dtypes to Python int objects
-    * Convert floats to objects and replace NaNs by None.
-    * Convert DateTime dtypes into appropriate string representations
+def theme_cognoma(fontsize_mult=1):   
+    import plotnine as gg
     
-    Args:
-        df (object): can be a variety of dataframe like objects
-        
-    Returns:
-        pandas.DataFrame: a dataframe that is ready to be serialized
-    """
-    import pandas as pd
-    import numpy as np
-
-    df = df.copy()
-
-    for col_name, dtype in df.dtypes.iteritems():
-        if str(dtype) == 'category':
-            # XXXX: work around bug in to_json for categorical types
-            # https://github.com/pydata/pandas/issues/10778
-            df[col_name] = df[col_name].astype(str)
-        elif np.issubdtype(dtype, np.integer):
-            # convert integers to objects; np.int is not JSON serializable
-            df[col_name] = df[col_name].astype(object)
-        elif np.issubdtype(dtype, np.floating):
-            # For floats, convert nan->None: np.float is not JSON serializable
-            col = df[col_name].astype(object)
-            df[col_name] = col.where(col.notnull(), None)
-        elif str(dtype).startswith('datetime'):
-            # Convert datetimes to strings
-            # astype(str) will choose the appropriate resolution
-            df[col_name] = df[col_name].astype(str).replace('NaT', '')
-    return df
+    return (gg.theme_bw(base_size = 14 * fontsize_mult) +
+        gg.theme(
+          line = gg.element_line(color = "#4d4d4d"), 
+          rect = gg.element_rect(fill = "white", color = None), 
+          text = gg.element_text(color = "black"), 
+          axis_ticks = gg.element_line(color = "#4d4d4d"),
+          legend_key = gg.element_rect(color = None), 
+          panel_border = gg.element_rect(color = "#4d4d4d"),  
+          panel_grid = gg.element_line(color = "#b3b3b3"), 
+          panel_grid_major_x = gg.element_blank(),
+          panel_grid_minor = gg.element_blank(),
+          strip_background = gg.element_rect(fill = "#e5e5e5", color = None),
+          axis_text = gg.element_text(size = 12 * fontsize_mult, color="#4d4d4d"),
+          axis_title_x = gg.element_text(size = 13 * fontsize_mult, color="#4d4d4d"),
+          axis_title_y = gg.element_text(size = 13 * fontsize_mult, color="#4d4d4d")
+    ))
 
 def get_model_coefficients(classifier, feature_set, covariate_names):
     """
