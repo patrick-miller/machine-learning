@@ -1,7 +1,7 @@
 
 # coding: utf-8
 
-# # Create a logistic regression model to predict TP53 mutation from gene expression data in TCGA
+# # Create a logistic regression model to predict mutation from gene expression data in TCGA
 
 # In[1]:
 
@@ -49,7 +49,7 @@ else:
 disease_acronyms = os.environ.get('disease_acronyms')
 
 if not disease_acronyms:
-    disease_acronyms = [] # use all of the diseases as default
+    disease_acronyms = None # use all of the diseases as default
     # disease_acronyms = ['LUAD', 'BLCA']
 else:
     disease_acronyms = disease_acronyms.split('-')
