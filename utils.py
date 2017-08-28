@@ -12,7 +12,7 @@ def theme_cognoma(fontsize_mult=1):
           panel_grid = gg.element_line(color = "#b3b3b3"), 
           panel_grid_major_x = gg.element_blank(),
           panel_grid_minor = gg.element_blank(),
-          strip_background = gg.element_rect(fill = "#e5e5e5", color = None),
+          strip_background = gg.element_rect(fill = "#FEF2E2", color = "#4d4d4d"),
           axis_text = gg.element_text(size = 12 * fontsize_mult, color="#4d4d4d"),
           axis_title_x = gg.element_text(size = 13 * fontsize_mult, color="#4d4d4d"),
           axis_title_y = gg.element_text(size = 13 * fontsize_mult, color="#4d4d4d")
